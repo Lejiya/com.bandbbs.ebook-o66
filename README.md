@@ -87,12 +87,6 @@ src/
 
 `npm run release` 需要签名材料，放在项目根目录的 `sign/` 下：
 
-| 文件 | 说明 |
-|---|---|
-| `sign/private.pem` | 签名私钥 |
-| `sign/certificate.pem` | 对应证书 |
-
-`sign/` 已在 `.gitignore` 中排除。**请自行生成并妥善保管，切勿提交到任何仓库** —— 私钥泄露意味着任何人都能签出冒充本应用的安装包。
 
 ## 已知事项
 
