@@ -1,0 +1,13 @@
+# 统一按 LF 存取，避免 Windows / macOS / Linux 协作时出现整文件 diff
+* text=auto eol=lf
+
+# 图片与二进制资源不做换行符转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.rpk binary
+*.aar binary
+*.jks binary
+*.keystore binary

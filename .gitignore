@@ -1,0 +1,22 @@
+# 依赖与构建产物
+/build
+/node_modules
+/dist
+
+# 签名材料 —— 绝对不要提交
+# private.pem 是 RPK 签名私钥，泄露等于任何人都能签出冒充本应用的包
+/sign
+*.pem
+*.jks
+*.keystore
+keystore.properties
+
+# 编辑器与系统文件
+.vscode/
+.idea/
+.DS_Store
+
+# 工具链生成
+.eslintignore
+.npmignore
+quickapp.config.js
