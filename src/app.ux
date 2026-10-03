@@ -16,8 +16,14 @@ export default {
     file.mkdir({
       uri: 'internal://files/books/',
       complete: function () {
+        // storage-api：utils/storage.js 用（密码 EBOOK_PASSWORD 等）
         file.mkdir({
           uri: 'internal://files/books/storage-api/'
+        });
+        // stroage-api：common/storage.js 用（拼写如此，不能改，
+        // 改了就读不到已存在的数据了）
+        file.mkdir({
+          uri: 'internal://files/books/stroage-api/'
         });
       }
     });

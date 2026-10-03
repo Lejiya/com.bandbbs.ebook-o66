@@ -17,7 +17,8 @@
 	  <img if="{{fileList.length == 0}}" src="/common/images/push.png"
 		  style="position: absolute;left: 49.5px;top: 433.8px;width: 113px;height: 80px;" @click="routerTo('push')"/>
 
-	  <!-- <text style="position: absolute;left: 0px;top: 240px;width: 212px;font-weight:bold;font-size:20px;color:red;">{{debugOutput}}</text> -->
+	  <!-- 诊断信息：只在书架为空时显示，书架正常时看不到 -->
+	  <text if="{{fileList.length == 0}}" style="position: absolute;left: 8px;top: 353px;width: 196px;line-height: 22px;font-size: 15px;color:#a8a8a8;text-align:center;">{{debugOutput}}</text>
 	</div>
 </template>
 
@@ -53,16 +54,25 @@ export default {
   },
   loadFileList() {
     const that = this;
+    // debugOutput 会一路累加：取存储 -> 列目录。
+    // 只要书架是空的，这段文字就会显示在页面上，直接告诉我们是哪一步断的。
+    that.debugOutput = '取存储';
     // 1. 先从storage拿进度信息
     storage.get({
       key: SAVED_KEY,
       success: function (data) {
         if (data) {
-          savedPersent = JSON.parse(data);
-          that.debugOutput = "读取存储信息成功：" + data;
+          // 必须兜住：这里解析失败会让 _doListFiles() 永远不执行，
+          // 书架就一直停在「书架空空」而且没有任何报错
+          try {
+            savedPersent = JSON.parse(data) || {};
+          } catch (e) {
+            savedPersent = {};
+          }
+          that.debugOutput += 'OK';
         } else {
           savedPersent = {};
-          that.debugOutput = "当前无存储信息";
+          that.debugOutput += '空';
         }
         // 2. 成功或无信息都要继续读取文件列表
         that._doListFiles();
@@ -70,7 +80,7 @@ export default {
       fail: function (errData, code) {
         // 如果获取storage失败，也初始化一个空对象
         savedPersent = {};
-        that.debugOutput = `storage.get失败，错误码: ${code}`;
+        that.debugOutput += '败' + code;
         // 同样继续读取文件列表
         that._doListFiles();
       }
@@ -79,50 +89,100 @@ export default {
   // 将读取文件列表封装成一个私有方法，方便在 storage 获取成功/失败后调用
   _doListFiles() {
     const that = this;
-    file.list({
+    // 先确保 books 目录存在，再列目录。
+    // mkdir 在目录已存在时会走 fail，所以三种回调都指向同一个 start，
+    // 谁先触发谁生效：既不漏回调，也不会重复列目录。
+    let started = false;
+    const start = function () {
+      if (started) return;
+      started = true;
+      that._listDir(INIT_PATH + '/');
+    };
+    file.mkdir({
       uri: INIT_PATH + '/',
-      success: function (data) {
-        if (data && data.fileList) {
-          // 3. 生成本地文件列表并与存储信息合并
-          const fileArray = data.fileList
-            .filter(item => item.type === 'file') // 筛选出文件类型
-            .map(item => {
-              // 去掉 .txt 后缀
-              const rawName = item.uri.split('/').pop().replace('.txt', '');
-              // 如果该文件名在 savedPersent 中，则取 p 的值，否则初始化
-              if (!savedPersent[rawName]) {
-                savedPersent[rawName] = { p: 0, s: 0, o: 0 };
-              }
-              return {
-                name: rawName,
-                // 将进度赋值给 item 用于界面展示
-                percent: savedPersent[rawName].p || 0
-              };
-            });
-          that.fileList = fileArray;
-        //   that.debugOutput = "文件列表加载成功: " + JSON.stringify(fileArray);
+      success: start,
+      fail: start,
+      complete: start
+    });
+  },
 
-          // 4. 如果有新添加的文件，或本地进度信息有更新，需写回 storage
-          storage.set({
-            key: SAVED_KEY,
-            value: JSON.stringify(savedPersent),
-            success: () => {
-              console.log("更新进度信息成功");
-            },
-            fail: (err, code) => {
-              console.log("更新进度信息失败, code=", code);
-            }
-          });
-        } else {
-          that.debugOutput = "没有文件可显示";
-          that.fileList = [];
-        }
+  // 列目录。带结尾斜杠失败时，去掉斜杠再试一次。
+  _listDir(uri) {
+    const that = this;
+    file.list({
+      uri: uri,
+      success: function (data) {
+        // 不同版本可能把列表放在 fileList 或 list 里，两个都认
+        const list = (data && (data.fileList || data.list)) || [];
+        that._applyFileList(list);
       },
       fail: function (errData, code) {
-        that.debugOutput = `文件加载失败: 错误代码 ${code}`;
+        if (uri.charAt(uri.length - 1) === '/') {
+          // 有些实现不接受结尾斜杠，去掉再试一次
+          that._listDir(INIT_PATH);
+          return;
+        }
+        that.debugOutput += ' | 列表失败' + code;
         that.fileList = [];
       }
     });
+  },
+
+  // 把 file.list 的原始结果转成界面要的数组
+  _applyFileList(list) {
+    const that = this;
+    // 只看 .txt 结尾的条目：不再依赖 item.type 字段
+    //（部分 Vela 版本上该字段拿不到 'file' 这个字面量，会把整个书架滤成空），
+    // 同时也天然排除了 storage-api / stroage-api 这些子目录
+    const txtFiles = list.filter(function (item) {
+      const u = (item && item.uri) ? item.uri : '';
+      return u.length > 4 && u.indexOf('.txt') === u.length - 4;
+    });
+    const fileArray = txtFiles.map(function (item) {
+      // 去掉 .txt 后缀
+      const rawName = item.uri.split('/').pop().replace('.txt', '');
+      // 如果该文件名在 savedPersent 中，则取 p 的值，否则初始化
+      if (!savedPersent[rawName]) {
+        savedPersent[rawName] = { p: 0, s: 0, o: 0 };
+      }
+      return {
+        name: rawName,
+        // 将进度赋值给 item 用于界面展示
+        percent: savedPersent[rawName].p || 0
+      };
+    });
+    that.fileList = fileArray;
+
+    // 诊断：列到几项、认出几本；若列到了东西却没一本是 txt，把前几项打出来
+    that.debugOutput += ' | 列' + list.length + '/文本' + fileArray.length;
+    if (fileArray.length === 0 && list.length > 0) {
+      that.debugOutput += ' ' + that._describeList(list);
+    }
+
+    // 4. 有书才写回进度信息，避免无意义的写入
+    if (fileArray.length > 0) {
+      storage.set({
+        key: SAVED_KEY,
+        value: JSON.stringify(savedPersent),
+        success: function () {
+          console.log("更新进度信息成功");
+        },
+        fail: function (err, code) {
+          console.log("更新进度信息失败, code=", code);
+        }
+      });
+    }
+  },
+
+  // 诊断用：把列表前几项拼成「类型:名字」，用来判断 type 字段到底有没有值
+  _describeList(list) {
+    const parts = [];
+    for (let i = 0; i < list.length && i < 3; i++) {
+      const item = list[i] || {};
+      const name = String(item.uri || '').split('/').pop().slice(0, 8);
+      parts.push((item.type || '?') + ':' + name);
+    }
+    return parts.join(' ');
   },
 
   selectFile(item) {

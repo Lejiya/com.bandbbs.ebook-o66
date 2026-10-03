@@ -3,6 +3,23 @@ import file from '@system.file'
 var storageFile = {}
 const fileSavedPath = 'internal://files/books/stroage-api/savedFile'
 
+// 兜底解析：读到的文本万一不是合法 JSON（空文件、写入被截断、带 BOM 等），
+// JSON.parse 会抛异常。而这个异常发生在 file.readText 的 success 回调内部，
+// 会导致 success 和 fail 两个回调都不会被调用 —— 调用方的 Promise 永远不 settle，
+// 外部表现就是「书架一片空白，却没有任何报错」。所以这里统一退化成空对象。
+function parseSaved(text) {
+    try {
+        var data = JSON.parse(text);
+        if (!data || typeof data !== 'object') {
+            return {};
+        }
+        return data;
+    } catch (e) {
+        console.log('savedFile 解析失败，按空对象处理: ' + e.message);
+        return {};
+    }
+}
+
 storageFile.get = function(param){
     
     var func = function(data){
@@ -25,7 +42,7 @@ storageFile.get = function(param){
       uri: fileSavedPath,
       success: function(data) {
         // console.log('READ SAVED FILE : ' + fileSavedPath + " -> " + data.text)
-        func(JSON.parse(data.text))
+        func(parseSaved(data.text))
       },
       fail: function(data, code) {
         // console.log(`handling fail, code = ${code}`)
@@ -70,7 +87,7 @@ storageFile.set = function(param){
       uri: fileSavedPath,
       success: function(data) {
         // console.log('READ SAVED FILE : ' + fileSavedPath + " -> " + data.text)
-        func(JSON.parse(data.text))
+        func(parseSaved(data.text))
       },
       fail: function(data, code) {
         // console.log(`handling fail, code = ${code}`)
@@ -93,7 +110,7 @@ storageFile.delete = function(param){
       uri: fileSavedPath,
       success: function(data) {
         // console.log('READ SAVED FILE : ' + fileSavedPath + " -> " + data.text)
-        func(JSON.parse(data.text))
+        func(parseSaved(data.text))
       },
       fail: function(data, code) {
         // console.log(`handling fail, code = ${code}`)

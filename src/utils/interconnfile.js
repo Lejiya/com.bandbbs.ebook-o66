@@ -64,10 +64,20 @@ export default class interconnfile {
         this.callback({ msg: "start", total, filename });
         this.currentFile = this.uri + filename;
         this.filename = filename;
+        // 确保 books 目录存在，否则后面的写入会全部失败
+        try {
+            await runAsyncFunc(file.mkdir, { uri: this.uri, recursive: true });
+        } catch (error) {
+            // 目录已存在时会报错，忽略即可
+        }
         if (filename != await runAsyncFunc(storage.get, { key: "__current_file__" })) {
-            await runAsyncFunc(storage.set, {
-                key: "__current_file__", value: filename,
-            });
+            try {
+                await runAsyncFunc(storage.set, {
+                    key: "__current_file__", value: filename,
+                });
+            } catch (error) {
+                // 存储不可用也不能挡住 ready 握手，否则传输永远不会开始
+            }
             this.packageCount = 0;
             try {
                 await runAsyncFunc(file.delete, { uri: this.currentFile });
@@ -107,9 +117,13 @@ export default class interconnfile {
             this.callback({ msg: "next", progress: count / this.totalpkg, filename: this.filename });
             if (count == this.totalpkg) {
                 this.send({ type: "success", message: "transfer success", count: this.packageCount });
-                await runAsyncFunc(storage.set, {
-                    key: "__current_file__", value: "",
-                });
+                try {
+                    await runAsyncFunc(storage.set, {
+                        key: "__current_file__", value: "",
+                    });
+                } catch (error) {
+                    // 收尾记账失败不能把「传输完成」判成「下载中断」
+                }
                 this.currentFile = null;
                 this.callback({ msg: "success" })
             }
